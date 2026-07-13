@@ -172,6 +172,47 @@ void test_health_endpoint() {
     EXPECT_EQ(json::parse(response.body)["data"]["status"].get<std::string>(), "ok");
 }
 
+void test_stats_are_zero_when_empty() {
+    Context context;
+    const auto stats = context.service->stats();
+    EXPECT_EQ(stats.todo, 0U);
+    EXPECT_EQ(stats.doing, 0U);
+    EXPECT_EQ(stats.done, 0U);
+    EXPECT_EQ(stats.total, 0U);
+}
+
+void test_stats_count_mixed_statuses() {
+    Context context;
+    context.service->create({"Todo", ""});
+    const Task doing = context.service->create({"Doing", ""});
+    const Task done = context.service->create({"Done", ""});
+
+    UpdateTask doing_update;
+    doing_update.status = TaskStatus::Doing;
+    context.service->update(doing.id, doing_update);
+    UpdateTask done_update;
+    done_update.status = TaskStatus::Done;
+    context.service->update(done.id, done_update);
+
+    const auto stats = context.service->stats();
+    EXPECT_EQ(stats.todo, 1U);
+    EXPECT_EQ(stats.doing, 1U);
+    EXPECT_EQ(stats.done, 1U);
+    EXPECT_EQ(stats.total, 3U);
+}
+
+void test_stats_endpoint_returns_counts() {
+    Context context;
+    context.service->create({"Todo", ""});
+    const auto response = request(context, "GET", "/stats");
+    const json data = json::parse(response.body)["data"];
+    EXPECT_EQ(response.status, 200);
+    EXPECT_EQ(data["todo"].get<std::size_t>(), 1U);
+    EXPECT_EQ(data["doing"].get<std::size_t>(), 0U);
+    EXPECT_EQ(data["done"].get<std::size_t>(), 0U);
+    EXPECT_EQ(data["total"].get<std::size_t>(), 1U);
+}
+
 void test_create_endpoint() {
     Context context;
     const auto response = request(context, "POST", "/tasks", R"({"title":"Build API","description":"SQLite"})");
@@ -255,6 +296,9 @@ int main() {
         {"long description", test_long_description_is_rejected},
         {"empty update", test_empty_update_is_rejected},
         {"health endpoint", test_health_endpoint},
+        {"empty stats", test_stats_are_zero_when_empty},
+        {"mixed stats", test_stats_count_mixed_statuses},
+        {"stats endpoint", test_stats_endpoint_returns_counts},
         {"create endpoint", test_create_endpoint},
         {"missing title endpoint", test_create_endpoint_requires_title},
         {"invalid json", test_invalid_json_returns_bad_request},
